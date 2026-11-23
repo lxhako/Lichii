@@ -629,6 +629,9 @@ Result BuildWarmFilesWith(Core::System& system, const fs::path& game_path, u64 t
     }
     WriteHeader(compute_out);
 
+    std::array<size_t, 9> shader_records{};
+    std::array<size_t, 9> unique_shader_records{};
+    std::array<std::unordered_set<PairHash, PairHasher>, 9> shader_identities;
     std::unordered_set<PairHash, PairHasher> compute_identities;
     std::unordered_set<std::string> compute_keys;
     size_t archive_errors = 0;
@@ -664,6 +667,22 @@ Result BuildWarmFilesWith(Core::System& system, const fs::path& game_path, u64 t
 
     // Every program the readers find, from archives and asset packs alike
     const auto on_record = [&](const ShaderRecord& record) {
+        // Record shader stages without changing the existing compute precompiler.
+        const size_t stage = static_cast<size_t>(record.stage);
+
+        if (stage < shader_records.size()) {
+            ++shader_records[stage];
+
+            const PairHash identity{
+                Hash128(record.code),
+                Hash128(record.control)
+            };
+
+            if (shader_identities[stage].insert(identity).second) {
+                ++unique_shader_records[stage];
+            }
+        }
+
         if (record.stage != ProgramStage::Compute) {
             return;
         }
@@ -778,6 +797,75 @@ Result BuildWarmFilesWith(Core::System& system, const fs::path& game_path, u64 t
         return fail("Cannot replace " + Common::FS::PathToUTF8String(compute_path));
     }
     WriteWarmCount(compute_path, result.compute_programs);
+
+    // Write a local statistics report without exposing game contents.
+    {
+        constexpr std::array<std::string_view, 9> stage_names{
+            "vertex",
+            "tess_control",
+            "tess_eval",
+            "geometry",
+            "fragment",
+            "compute",
+            "task",
+            "mesh",
+            "other",
+        };
+
+        const fs::path report_path = output_dir / "shader-inventory.json";
+        std::ofstream inventory_file(report_path, std::ios::trunc);
+
+        if (inventory_file) {
+            inventory_file << "{\n"
+                   << "  \"schema_version\": 1,\n"
+                   << "  \"title_id\": \""
+                   << fmt::format("{:016x}", title_id)
+                   << "\",\n"
+                   << "  \"archives\": " << result.archives << ",\n"
+                   << "  \"asset_packs\": " << result.packs << ",\n"
+                   << "  \"compute_entries_written\": "
+                   << result.compute_programs << ",\n"
+                   << "  \"compute_programs_skipped\": "
+                   << result.skipped << ",\n"
+                   << "  \"stages\": {\n";
+
+            for (size_t i = 0; i < stage_names.size(); ++i) {
+                inventory_file << "    \"" << stage_names[i]
+                       << "\": {\"extracted\": "
+                       << shader_records[i]
+                       << ", \"unique\": "
+                       << unique_shader_records[i]
+                       << "}";
+
+                if (i + 1 < stage_names.size()) {
+                    inventory_file << ",";
+                }
+
+                inventory_file << "\n";
+            }
+
+            inventory_file << "  }\n}\n";
+            inventory_file.close();
+
+            if (!inventory_file) {
+                LOG_WARNING(
+                    Render_Vulkan,
+                    "Shader Inventory: failed writing JSON report");
+            }
+        }
+        else {
+            LOG_WARNING(
+                Render_Vulkan,
+                "Shader Inventory: cannot create JSON report");
+        }
+
+        LOG_INFO(
+            Render_Vulkan,
+            "Shader Inventory: vertex={}, fragment={}, compute={}",
+            shader_records[0],
+            shader_records[4],
+            shader_records[5]);
+    }
     report(StageWriting, 1, 1);
     result.ok = true;
     LOG_INFO(Render_Vulkan,
