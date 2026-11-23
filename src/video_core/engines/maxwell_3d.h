@@ -3495,6 +3495,13 @@ private:
         return value == nullptr || value[0] != '0';
     }();
     const bool perf_verify = VideoCommon::Nx2Perf::Verify();
+
+    // Phase 6D: Optional fast dispatch for draw.begin.
+    // Disabled unless EDEN_NX2_PHASE6D_DRAW_BEGIN=1.
+    const bool phase6d_draw_begin_fast = [] {
+        const char* value = std::getenv("EDEN_NX2_PHASE6D_DRAW_BEGIN");
+        return value != nullptr && value[0] == '1';
+    }();
     const bool reg_block_verify = [] {
         const char* value = std::getenv("EDEN_NX2_REG_BLOCK_VERIFY");
         return value != nullptr && value[0] == '1';

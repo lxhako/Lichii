@@ -555,6 +555,17 @@ void Maxwell3D::CallMethod(Core::System& system, u32 method, u32 method_argument
     if (perf_verify) {
         return VerifyCallMethod(system, method, method_argument, is_last_call);
     }
+
+    // Phase 6D: Bypass generic method dispatch for draw.begin.
+    // Preserve shadow RAM handling, dirty-register processing
+    // and the original DrawBegin side effects.
+    if (phase6d_draw_begin_fast &&
+        method == MAXWELL3D_REG_INDEX(draw.begin)) {
+        const u32 argument = ProcessShadowRam(method, method_argument);
+        ProcessDirtyRegisters(method, argument);
+        return draw_manager.DrawBegin(*this);
+    }
+
     CallMethodFast(method, method_argument, is_last_call);
 }
 
