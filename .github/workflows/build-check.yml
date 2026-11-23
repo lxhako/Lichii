@@ -429,6 +429,38 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure --no-tests=error --parallel "$NUMBER_OF_PROCESSORS"
 
+      - name: Package Phase 6D Windows build
+        if: github.ref == 'refs/heads/phase6d-gpu-dispatch'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if (-not (Test-Path 'build/bin/lichii.exe')) {
+            throw 'Windows executable was not generated.'
+          }
+
+          windeployqt --release --no-translations build/bin/lichii.exe
+
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Qt deployment failed.'
+          }
+
+          Get-ChildItem build/bin -Recurse -Filter '*.pdb' -File |
+            Remove-Item -Force
+
+          if (-not (Test-Path 'build/bin/lichii.exe')) {
+            throw 'Executable missing after packaging.'
+          }
+
+      - name: Upload Phase 6D Windows build
+        if: github.ref == 'refs/heads/phase6d-gpu-dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: lichii-phase6d-windows-${{ github.sha }}
+          path: build/bin/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Save dependencies and compiler objects
         if: github.ref == 'refs/heads/nx2' && !cancelled()
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25
